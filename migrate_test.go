@@ -205,12 +205,10 @@ func Test_ExecuteMigration(t *testing.T) {
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			}, {
 				Id:           "Test2",
 				Script:       "CREATE TABLE test2 (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test2",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
 		service := NewMigrationService("config.json", "scripts", fs, d)
@@ -310,12 +308,10 @@ func Test_ExecuteMigration(t *testing.T) {
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			}, {
 				Id:           "Test2",
 				Script:       "CREATE TABLE test2 (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test2",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
 		service := NewMigrationService("config.json", "scripts", fs, d)
@@ -343,12 +339,10 @@ func Test_ExecuteMigration(t *testing.T) {
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			}, {
 				Id:           "Test2",
 				Script:       "CREATE TABLE test2 (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test2",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
 		service := NewMigrationService("config.json", "scripts", fs, d)
@@ -380,7 +374,6 @@ func Test_ExecuteMigration(t *testing.T) {
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			},
 		})
 		service := NewMigrationService("config.json", "scripts", fs, d)
@@ -433,7 +426,6 @@ func Test_ExecuteMigration(t *testing.T) {
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			},
 		})
 		service := NewMigrationService("config.json", "scripts", fs, d)
