@@ -3,15 +3,17 @@ package migrago
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"testing"
+	"testing/fstest"
 
 	"github.com/docker/go-connections/nat"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-
-	_ "github.com/lib/pq"
 )
 
 func CreateTestPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, error) {
@@ -54,6 +56,22 @@ func CreateTestPostgresContainer(t *testing.T, ctx context.Context) (*sql.DB, er
 	return d, nil
 }
 
+func CreateFSForMigrations(migrations []Migration) fs.FS {
+	ids := make([]string, len(migrations))
+	fs := fstest.MapFS{}
+	for i, migration := range migrations {
+		ids[i] = migration.Id
+		fs[fmt.Sprintf("scripts/%s.sql", migration.Id)] = &fstest.MapFile{Data: []byte(migration.Script)}
+		fs[fmt.Sprintf("scripts/%s.revert.sql", migration.Id)] = &fstest.MapFile{Data: []byte(migration.RevertScript)}
+	}
+	b, err := json.Marshal(ids)
+	if err != nil {
+		panic(err)
+	}
+	fs["config.json"] = &fstest.MapFile{Data: b}
+	return fs
+}
+
 func Test_ExecuteMigration(t *testing.T) {
 	t.Run("Test with empty MigrationList", func(t *testing.T) {
 		ctx := context.Background()
@@ -63,7 +81,9 @@ func Test_ExecuteMigration(t *testing.T) {
 		}
 		defer d.Close()
 
-		err = ExecuteMigration(ctx, d, []Migration{})
+		fs := CreateFSForMigrations([]Migration{})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
 		assert.NoError(t, err)
 	})
 	t.Run("Test with one Migrations", func(t *testing.T) {
@@ -73,14 +93,15 @@ func Test_ExecuteMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer d.Close()
-		err = ExecuteMigration(ctx, d, []Migration{
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
 		assert.NoError(t, err)
 		var checksum string
 		err = d.QueryRow("SELECT checksum FROM changelog").Scan(&checksum)
@@ -98,19 +119,21 @@ func Test_ExecuteMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer d.Close()
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			}, {
 				Id:           "Test2",
 				Script:       "CREATE TABLE test2 (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test2",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.NoError(t, err)
 		var checksum string
 		err = d.QueryRow("SELECT checksum FROM changelog").Scan(&checksum)
@@ -128,19 +151,21 @@ func Test_ExecuteMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer d.Close()
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			}, {
 				Id:           "Test2",
 				Script:       "CREATE TABLE test2 (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test2",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.NoError(t, err)
 		var checksum string
 		var rows *sql.Rows
@@ -154,7 +179,7 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.True(t, rows.Next())
 		err = rows.Scan(&checksum)
 		assert.NoError(t, err)
-		assert.Equal(t, "9c23564a026f0826f2a05b8423aa21f8", checksum)
+		assert.Equal(t, "7eae18bb7a8410194e677a451c0bad70", checksum)
 
 		assert.False(t, rows.Next())
 
@@ -174,7 +199,8 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.NoError(t, err)
 		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test", "9c23564a026f0826f2a05b8423aa21f9", "DROP TABLE test")
 		assert.NoError(t, err)
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
@@ -187,6 +213,9 @@ func Test_ExecuteMigration(t *testing.T) {
 				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.NoError(t, err)
 		var checksum string
 		var rows *sql.Rows
@@ -200,7 +229,7 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.True(t, rows.Next())
 		err = rows.Scan(&checksum)
 		assert.NoError(t, err)
-		assert.Equal(t, "9c23564a026f0826f2a05b8423aa21f8", checksum)
+		assert.Equal(t, "7eae18bb7a8410194e677a451c0bad70", checksum)
 
 		assert.False(t, rows.Next())
 
@@ -221,21 +250,23 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.NoError(t, err)
 		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test", "9c23564a026f0826f2a05b8423aa21f9", "DROP TABLE test")
 		assert.NoError(t, err)
-		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test2", "9c23564a026f0826f2a05b8423aa21f8", "DROP TABLE test2")
+		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test2", "7eae18bb7a8410194e677a451c0bad70", "DROP TABLE test2")
 		assert.NoError(t, err)
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			}, {
 				Id:           "Test2",
 				Script:       "CREATE TABLE test2 (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test2",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.NoError(t, err)
 		var checksum string
 		var rows *sql.Rows
@@ -249,7 +280,7 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.True(t, rows.Next())
 		err = rows.Scan(&checksum)
 		assert.NoError(t, err)
-		assert.Equal(t, "9c23564a026f0826f2a05b8423aa21f8", checksum)
+		assert.Equal(t, "7eae18bb7a8410194e677a451c0bad70", checksum)
 
 		assert.False(t, rows.Next())
 
@@ -273,7 +304,8 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.NoError(t, err)
 		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test2", "9c23564a026f0826f2a05b8423aa21f7", "DROP TABLE test2")
 		assert.NoError(t, err)
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
@@ -286,6 +318,9 @@ func Test_ExecuteMigration(t *testing.T) {
 				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.ErrorContains(t, err, "checksum mismatch")
 	})
 
@@ -302,7 +337,8 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.NoError(t, err)
 		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test2", "9c23564a026f0826f2a05b8423aa21f7", "DROP TABLE test2")
 		assert.NoError(t, err)
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
@@ -315,6 +351,9 @@ func Test_ExecuteMigration(t *testing.T) {
 				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.ErrorContains(t, err, "checksum mismatch")
 	})
 	t.Run("Test with one revert Script", func(t *testing.T) {
@@ -335,7 +374,8 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.NoError(t, err)
 		_, err = d.Exec("CREATE TABLE IF NOT EXISTS test (id VARCHAR(255))")
 		assert.NoError(t, err)
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
@@ -343,6 +383,9 @@ func Test_ExecuteMigration(t *testing.T) {
 				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.NoError(t, err)
 		var checksum string
 		var rows *sql.Rows
@@ -384,7 +427,8 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.NoError(t, err)
 		_, err = d.Exec("CREATE TABLE IF NOT EXISTS test3 (id VARCHAR(255))")
 		assert.NoError(t, err)
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test",
 				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
@@ -392,6 +436,9 @@ func Test_ExecuteMigration(t *testing.T) {
 				Checksum:     "9c23564a026f0826f2a05b8423aa21f9",
 			},
 		})
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
 		assert.NoError(t, err)
 		var checksum string
 		var rows *sql.Rows
@@ -423,21 +470,24 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.NoError(t, err)
 		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test", "9c23564a026f0826f2a05b8423aa21f9", "DROP TABLE test")
 		assert.NoError(t, err)
-		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test2", "9c23564a026f0826f2a05b8423aa21f8", "DROP TABLE test2")
+		_, err = d.Exec("INSERT INTO changelog (id, checksum, revertscript) VALUES ($1, $2, $3)", "Test2", "7eae18bb7a8410194e677a451c0bad70", "DROP TABLE test2")
 		assert.NoError(t, err)
 		_, err = d.Exec("CREATE TABLE IF NOT EXISTS test (id VARCHAR(255))")
 		assert.NoError(t, err)
 		_, err = d.Exec("CREATE TABLE IF NOT EXISTS test2 (id VARCHAR(255))")
 		assert.NoError(t, err)
-		err = ExecuteMigration(ctx, d, []Migration{
+
+		fs := CreateFSForMigrations([]Migration{
 			{
 				Id:           "Test2",
-				Script:       "CREATE TABLE test (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
+				Script:       "CREATE TABLE test2 (id serial PRIMARY KEY, name VARCHAR(50) UNIQUE NOT NULL)",
 				RevertScript: "DROP TABLE test",
-				Checksum:     "9c23564a026f0826f2a05b8423aa21f8",
 			},
 		})
-		assert.ErrorContains(t, err, "not revertedable migration found")
+		service := NewMigrationService("config.json", "scripts", fs, d)
+		err = service.ExecuteMigration(ctx)
+
+		assert.ErrorContains(t, err, "not revertable migration found")
 		var checksum string
 		var rows *sql.Rows
 		rows, err = d.Query("SELECT checksum FROM changelog ORDER BY id")
@@ -450,7 +500,7 @@ func Test_ExecuteMigration(t *testing.T) {
 		assert.True(t, rows.Next())
 		err = rows.Scan(&checksum)
 		assert.NoError(t, err)
-		assert.Equal(t, "9c23564a026f0826f2a05b8423aa21f8", checksum)
+		assert.Equal(t, "7eae18bb7a8410194e677a451c0bad70", checksum)
 
 		assert.False(t, rows.Next())
 
