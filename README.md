@@ -1,6 +1,20 @@
 # migrago
 Database migration tool for go projects
 
+> Currently only supports postgres databases
+
+## WARNING
+> This is a work in progress and should not be used in production
+
+## features
+- [x] Database migration
+- [x] Rollback migration
+- [x] Configurable migration directory
+- [x] Support postgres
+- [ ] Support mysql
+- [ ] Support sqlite
+
+
 ## installation
 use the following command to install the package
 
