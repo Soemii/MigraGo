@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"path/filepath"
 	"slices"
 )
@@ -82,7 +81,6 @@ func (m MigrationService) extractMigration(migrationId string) (Migration, error
 	}
 
 	checksum := md5.Sum([]byte(script))
-	log.Printf("checksum: %v", checksum[:])
 	return Migration{
 		Id:           migrationId,
 		Script:       script,
