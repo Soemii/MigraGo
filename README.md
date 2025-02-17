@@ -1,3 +1,7 @@
+***
+# ARCHIVED
+**Personal project that was used for a custom code structure that is no longer needed, so it is now archived. I now use [golang-migrate](https://github.com/golang-migrate/migrate).**
+***
 # migrago
 Database migration tool for go projects
 
